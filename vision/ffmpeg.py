@@ -1,6 +1,8 @@
 import os
+import subprocess
 import shutil
 import random
+import re
 from PIL import Image
 
 def which(program):
@@ -52,21 +54,39 @@ class extract(object):
         except:
             pass
 
+        subp_cmd = []
         if which("ffmpeg") is not None:
-            cmd = "ffmpeg -i {0} -b 10000k".format(path)
+            subp_cmd.append('ffmpeg')
         else:
-            cmd = "avconv -i {0} -b 10000k".format(path)
+            subp_cmd.append('avconv')
+        subp_cmd.append('-i')
+        subp_cmd.append(path)
+        subp_cmd.append('-b')
+        subp_cmd.append('10000k')
         if fps:
-            cmd = "{0} -r {1}".format(cmd, int(fps))
+            subp_cmd.append('-r')
+            subp_cmd.append('{}'.format(int(fps)))
         if size:
             w, h = size
-            cmd = "{0} -s {1}x{2}".format(cmd, int(w), int(h))
+            subp_cmd.append('-s')
+            subp_cmd.append('{1}x{2}'.format(int(w), int(h)))
         if quality:
             # quality should be an int between 2 and 31. 2 is BEST, 31 is WORST
-            cmd = "{0} -q {1}".format(cmd, int(quality))
+            subp_cmd.append('-q')
+            subp_cmd.append('{}'.format(int(quality)))
 
-        cmd = "{0} {1}/%d.jpg".format(cmd, self.output)
-        os.system(cmd)
+        subp_cmd.append("{}/{}".format(self.output, '%d.jpg'))
+        #print "Command: {}".format(" ".join(subp_cmd))
+        sp = subprocess.Popen(subp_cmd, stderr=subprocess.PIPE)
+        out, err = sp.communicate()
+        self.original_dimensions = None
+        regexp = re.compile(r',\s*(\d+x\d+),')
+        for line in err.splitlines():
+            if 'Stream #0' in line:
+                m = regexp.search(line)
+                if m:
+                    self.original_dimensions = m.group(1)
+
 
     def __del__(self):
         if self.output:
