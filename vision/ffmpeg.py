@@ -25,8 +25,17 @@ def which(program):
 
     return None
 
+class ExtractException(BaseException):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
 class extract(object):
-    def __init__(self, path, fps = None, size = None, quality = None):
+    def __init__(self, path, fps = None, size = None, quality = None,
+                 output_directory = None, output_fn_format = '%d.jpg',
+                 preserve_output = False):
         """
         Extract frames from a video using ffmpeg (or avconv). Provide access to
         those frames via a collection of PIL.Image objects.
@@ -44,10 +53,30 @@ class extract(object):
                 2 is the least compression, highest quality. 31 is the most
                 compression and loss. If None, then let ffmpeg do its default
                 thing (which appears to be 2, but may be ffmpeg-dependent).
+            output_directory (str): If None, then create a random directory
+                in /tmp with a name starting with 'pyvsion-ffmpeg-' and then
+                a random number. Else, use the string as given, creating the
+                directory if it is not already present.
+            output_fn_format (str): an 'ffmpeg' filename specification
+                string, with the default of '%d.jpg'. See
+                https://ffmpeg.org/ffmpeg.html, which says, "The syntax
+                `foo-%03d.jpeg` specifies to use a decimal number composed of
+                three digits padded with zeroes to express the sequence
+                number. It is the same syntax supported by the C printf
+                function, but only formats accepting a normal integer are
+                suitable." Also, note that ffmpeg will work to infer the
+                image file format based on this name, `jpg` creating JPEG
+                image files, and `png` creating PNG image files.
         """
-        self.key = int(random.random() * 1000000000)
-        self.key = "pyvision-ffmpeg-{0}".format(self.key)
-        self.output = "/tmp/{0}".format(self.key)
+        self.starting_frame = 1
+        if not output_directory:
+            self.key = int(random.random() * 1000000000)
+            self.key = "pyvision-ffmpeg-{0}".format(self.key)
+            self.output = "/tmp/{0}".format(self.key)
+        else:
+            self.output = output_directory
+        self.preserve = preserve_output
+        self.output_fn_format = output_fn_format
         self.path = path
         try:
             os.makedirs(self.output) 
@@ -75,9 +104,9 @@ class extract(object):
             subp_cmd.append('-q')
             subp_cmd.append('{}'.format(int(quality)))
 
-        subp_cmd.append("{}/{}".format(self.output, '%d.jpg'))
+        subp_cmd.append("{}/{}".format(self.output, self.output_fn_format))
         #print "Command: {}".format(" ".join(subp_cmd))
-        sp = subprocess.Popen(subp_cmd, stderr=subprocess.PIPE)
+        sp = subprocess.Popen(subp_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         out, err = sp.communicate()
         self.original_dimensions = None
         regexp = re.compile(r',\s*(\d+x\d+),')
@@ -86,17 +115,19 @@ class extract(object):
                 m = regexp.search(line)
                 if m:
                     self.original_dimensions = m.group(1)
+        if sp.returncode != 0:
+            raise ExtractException("ffmpeg returned ono-zero return code {}.\n{}".format(sp.returncode, err))
 
 
     def __del__(self):
-        if self.output:
+        if self.output and not self.preserve:
             shutil.rmtree(self.output)
 
     def __getitem__(self, k):
         return Image.open(self.getframepath(k))
 
     def getframepath(self, k):
-        return "{0}/{1}.jpg".format(self.output, k+1)
+        return os.path.join(self.output, self.output_fn_format % (k + self.starting_frame))
 
     def __len__(self):
         f = 1
